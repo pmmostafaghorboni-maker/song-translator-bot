@@ -15,6 +15,7 @@ def health():
 def run_bot():
     try:
         import bot
+        print("--- Bot is starting... ---")  # این خط رو اضافه کردم
         bot.application.run_polling()
     except Exception as e:
         print(f"Error starting bot: {e}")
