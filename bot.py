@@ -1,4 +1,5 @@
 import os
+import psycopg2
 from datetime import datetime, timedelta
 from telegram import Update, LabeledPrice, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -8,27 +9,90 @@ from telegram.ext import (
 from openai import OpenAI
 
 # ==========================================
-# ⚠️ این سه خط را با اطلاعات خودت پر کن
+# خواندن متغیرهای محیطی از Render
 # ==========================================
-BOT_TOKEN = "9029644547:AAEgCSzhllezoV6jiJtXk4YlCG2U-OxrT5U"
-OPENAI_API_KEY = "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"
-ADMIN_ID = 6600182795  # آیدی عددی خودت (با ربات @userinfobot بگیر)
+BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+DATABASE_URL = os.environ.get("DATABASE_URL") # این را در Render اضافه کردید
 
-# اطلاعات کارت برای پرداخت دستی
-CARD_NUMBER = "5859-8318-0259-8994" # شماره کارت خودت
-CARD_HOLDER = " مصطفی قربانی"               # نام و نام خانوادگی صاحب کارت
-# ==========================================
+CARD_NUMBER = "1234-5678-9012-3456" # شماره کارت خودت
+CARD_HOLDER = "مصطفی"               # نام و نام خانوادگی صاحب کارت
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-user_subscriptions = {}
-user_free_usage = {}
+# ==========================================
+# توابع دیتابیس (اتصال به Supabase)
+# ==========================================
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
+def init_db():
+    """ساخت جدول‌ها در دیتابیس اگر وجود نداشته باشند"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            user_id BIGINT PRIMARY KEY,
+            expiry_date TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS free_usage (
+            user_id BIGINT PRIMARY KEY,
+            usage_count INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def check_subscription(user_id):
-    exp_date = user_subscriptions.get(user_id)
-    if exp_date and exp_date > datetime.now():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT expiry_date FROM subscriptions WHERE user_id = %s", (user_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    if result and result[0] > datetime.now():
         return True
     return False
+
+def get_free_usage(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT usage_count FROM free_usage WHERE user_id = %s", (user_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result[0] if result else 0
+
+def increment_free_usage(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO free_usage (user_id, usage_count) VALUES (%s, 1)
+        ON CONFLICT (user_id) DO UPDATE SET usage_count = free_usage.usage_count + 1
+    """, (user_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def activate_subscription(user_id, days=30):
+    expiry = datetime.now() + timedelta(days=days)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO subscriptions (user_id, expiry_date) VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET expiry_date = %s
+    """, (user_id, expiry, expiry))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ==========================================
+# منطق ربات تلگرام
+# ==========================================
 
 async def show_payment_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -63,14 +127,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payment_text = (
             f"💳 **پرداخت کارت به کارت**\n\n"
             f"مبلغ: **۵۰,۰۰۰ تومان**\n"
-            f"5859 8318 0259 8994: `{CARD_NUMBER}`\n"
-            f" مصطفی قربانی: **{CARD_HOLDER}**\n\n"
+            f"شماره کارت: `{CARD_NUMBER}`\n"
+            f"به نام: **{CARD_HOLDER}**\n\n"
             f"پس از واریز، **عکس رسید** یا **۴ رقم آخر کارت خود** را همینجا بفرستید تا ادمین تأیید کند."
         )
         await query.message.reply_text(payment_text, parse_mode='Markdown')
         context.user_data['awaiting_receipt'] = True
 
-    # بخش تایید یا رد کردن توسط ادمین
     elif query.data.startswith("approve_") or query.data.startswith("reject_"):
         if query.from_user.id != ADMIN_ID:
             await query.answer("شما اجازه این کار را ندارید.", show_alert=True)
@@ -80,7 +143,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_user_id = int(target_user_id)
 
         if action == "approve":
-            user_subscriptions[target_user_id] = datetime.now() + timedelta(days=30)
+            activate_subscription(target_user_id, 30)
             await context.bot.send_message(chat_id=target_user_id, text="✅ پرداخت شما تأیید شد! اشتراک فعال شد.")
             await query.edit_message_text("✅ تأیید شد. اشتراک کاربر فعال گردید.")
         else:
@@ -127,7 +190,7 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_subscriptions[user_id] = datetime.now() + timedelta(days=30)
+    activate_subscription(user_id, 30)
     await update.message.reply_text("✅ اشتراک شما فعال شد! حالا می‌توانید آهنگ بفرستید.")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,13 +199,13 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if check_subscription(user_id):
         pass 
     else:
-        usage_count = user_free_usage.get(user_id, 0)
+        usage_count = get_free_usage(user_id)
         if usage_count >= 2:
             await show_payment_options(update, context)
             return
         else:
-            user_free_usage[user_id] = usage_count + 1
-            remaining = 2 - user_free_usage[user_id]
+            increment_free_usage(user_id)
+            remaining = 2 - (usage_count + 1)
             await update.message.reply_text(f"شما {remaining} آهنگ رایگان دیگر دارید.")
 
     audio_file = update.message.audio or update.message.voice
@@ -191,10 +254,11 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
 
 # ==========================================
-# اینجا اپلیکیشن ساخته می‌شود و هندلرها اضافه می‌شوند
+# اجرای برنامه
 # ==========================================
+init_db()
+
 application = ApplicationBuilder().token(BOT_TOKEN).build()
-    
 application.add_handler(CommandHandler("subscribe", subscribe_command))
 application.add_handler(CallbackQueryHandler(button_callback))
 application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
@@ -202,7 +266,6 @@ application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_pa
 application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
 application.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_receipt))
 
-# این خط فقط وقتی اجرا میشه که خود فایل bot.py مستقیم اجرا بشه (مثلاً روی لپ‌تاپ)
 if __name__ == '__main__':
     print("ربات در حال اجراست...")
     application.run_polling()
