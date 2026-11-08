@@ -1,3 +1,4 @@
 python-telegram-bot
 openai
 flask
+psycopg2-binary
