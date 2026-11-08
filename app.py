@@ -13,12 +13,13 @@ def health():
     return "OK"
 
 def run_bot():
+    print(">>> BOT STARTING...")
     try:
         import bot
-        print(">>> BOT IMPORT SUCCESSFUL. STARTING POLLING...")
+        print(">>> BOT IMPORTED SUCCESSFULLY.")
         bot.application.run_polling()
     except Exception as e:
-        print(f">>> FATAL ERROR IN BOT: {e}")
+        print(f">>> BOT CRASHED WITH ERROR: {e}")
 
 if __name__ == '__main__':
     bot_thread = threading.Thread(target=run_bot)
