@@ -2,3 +2,4 @@ python-telegram-bot
 google-genai
 psycopg2-binary
 flask
+gunicorn
