@@ -6,13 +6,13 @@ from telegram.ext import (
     ApplicationBuilder, MessageHandler, filters, ContextTypes,
     CommandHandler, PreCheckoutQueryHandler, CallbackQueryHandler
 )
-from openai import OpenAI
+import google.generativeai as genai
 
 # ==========================================
 # خواندن متغیرهای محیطی از Render (امن)
 # ==========================================
 BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -22,7 +22,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 CARD_NUMBER = "5859-8318-0259-8994"
 CARD_HOLDER = "مصطفی قربانی"
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# تنظیم کلاینت گوگل
+genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
 # توابع دیتابیس (اتصال به Supabase)
@@ -198,6 +199,7 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
+    # اعمال محدودیت ۲ آهنگ رایگان برای همه
     if check_subscription(user_id):
         pass 
     else:
@@ -220,40 +222,37 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{update.message.message_id}.mp3"
     await file.download_to_drive(file_path)
 
-    await update.message.reply_text("در حال تبدیل صدا به متن...")
+    await update.message.reply_text("در حال تبدیل صدا به متن و ترجمه با هوش مصنوعی گوگل...")
     try:
-        with open(file_path, "rb") as audio:
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio)
-        english_text = transcript.text
-
-        if len(english_text) < 20:
-            await update.message.reply_text("متن قابل تشخیصی پیدا نشد. لطفاً فایل واضح‌تری بفرستید.")
-            os.remove(file_path)
-            return
-
-        await update.message.reply_text("در حال ترجمه به فارسی...")
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a professional translator. Translate the following English song lyrics into natural, poetic Persian (Farsi)."},
-                {"role": "user", "content": english_text}
-            ]
-        )
-        persian_text = response.choices[0].message.content
-
-        final_message = f"🎵 **متن انگلیسی:**\n\n{english_text}\n\n🇮🇷 **ترجمه فارسی:**\n\n{persian_text}"
+        # استفاده از مدل Gemini برای پردازش صوت و ترجمه
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        if len(final_message) > 4000:
-            await update.message.reply_text(f"🎵 متن انگلیسی:\n\n{english_text[:2000]}...")
-            await update.message.reply_text(f"🇮🇷 ترجمه فارسی:\n\n{persian_text[:2000]}...")
+        # آپلود فایل صوتی به گوگل
+        audio_file_gemini = genai.upload_file(path=file_path)
+        
+        # درخواست به هوش مصنوعی: متن را دربیار و به فارسی ترجمه کن
+        prompt = "Please transcribe this audio file (it's an English song). Then, translate the transcribed English lyrics into natural, poetic Persian (Farsi). Provide the output in this format: First the English text, then the Persian translation."
+        
+        response = model.generate_content([prompt, audio_file_gemini])
+        final_text = response.text
+
+        # ارسال نتیجه به کاربر
+        if len(final_text) > 4000:
+            await update.message.reply_text(final_text[:4000])
         else:
-            await update.message.reply_text(final_message, parse_mode='Markdown')
+            await update.message.reply_text(final_text)
 
     except Exception as e:
         await update.message.reply_text(f"خطا: {e}")
     finally:
+        # پاک کردن فایل‌های موقت
         if os.path.exists(file_path):
             os.remove(file_path)
+        # پاک کردن فایل آپلود شده در سرور گوگل (اختیاری)
+        try:
+            genai.delete_file(audio_file_gemini.name)
+        except:
+            pass
 
 # ==========================================
 # اجرای برنامه
