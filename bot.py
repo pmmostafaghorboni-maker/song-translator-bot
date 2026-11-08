@@ -11,13 +11,13 @@ from openai import OpenAI
 # ==========================================
 # خواندن متغیرهای محیطی از Render
 # ==========================================
-BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+BOT_TOKEN = os.environ.get("9029644547:AAEgCSzhllezoV6jiJtXk4YlCG2U-OxrT5U")
+OPENAI_API_KEY = os.environ.get("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")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 DATABASE_URL = os.environ.get("DATABASE_URL") # این را در Render اضافه کردید
 
-CARD_NUMBER = "1234-5678-9012-3456" # شماره کارت خودت
-CARD_HOLDER = "مصطفی"               # نام و نام خانوادگی صاحب کارت
+CARD_NUMBER = "5859-8318-0259-8994" # شماره کارت خودت
+CARD_HOLDER = "مصطفی قربانی"               # نام و نام خانوادگی صاحب کارت
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
