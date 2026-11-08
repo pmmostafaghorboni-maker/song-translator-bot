@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, MessageHandler, filters, ContextTypes,
     CommandHandler, PreCheckoutQueryHandler, CallbackQueryHandler
 )
-import google.generativeai as genai
+from google import genai  # کتابخانه جدید
 
 # ==========================================
 # خواندن متغیرهای محیطی از Render (امن)
@@ -22,8 +22,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 CARD_NUMBER = "5859-8318-0259-8994"
 CARD_HOLDER = "مصطفی قربانی"
 
-# تنظیم کلاینت گوگل
-genai.configure(api_key=GEMINI_API_KEY)
+# تنظیم کلاینت گوگل (روش جدید)
+client_ai = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
 # توابع دیتابیس (اتصال به Supabase)
@@ -199,7 +199,6 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # اعمال محدودیت ۲ آهنگ رایگان برای همه
     if check_subscription(user_id):
         pass 
     else:
@@ -224,19 +223,18 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("در حال تبدیل صدا به متن و ترجمه با هوش مصنوعی گوگل...")
     try:
-        # استفاده از مدل Gemini برای پردازش صوت و ترجمه
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # روش جدید آپلود فایل با google-genai
+        uploaded_file = client_ai.files.upload(file=file_path)
         
-        # آپلود فایل صوتی به گوگل
-        audio_file_gemini = genai.upload_file(path=file_path)
-        
-        # درخواست به هوش مصنوعی: متن را دربیار و به فارسی ترجمه کن
         prompt = "Please transcribe this audio file (it's an English song). Then, translate the transcribed English lyrics into natural, poetic Persian (Farsi). Provide the output in this format: First the English text, then the Persian translation."
         
-        response = model.generate_content([prompt, audio_file_gemini])
+        # روش جدید تولید محتوا
+        response = client_ai.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt, uploaded_file]
+        )
         final_text = response.text
 
-        # ارسال نتیجه به کاربر
         if len(final_text) > 4000:
             await update.message.reply_text(final_text[:4000])
         else:
@@ -245,12 +243,10 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"خطا: {e}")
     finally:
-        # پاک کردن فایل‌های موقت
         if os.path.exists(file_path):
             os.remove(file_path)
-        # پاک کردن فایل آپلود شده در سرور گوگل (اختیاری)
         try:
-            genai.delete_file(audio_file_gemini.name)
+            client_ai.files.delete(name=uploaded_file.name)
         except:
             pass
 
