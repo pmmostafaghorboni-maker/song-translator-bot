@@ -15,10 +15,10 @@ def health():
 def run_bot():
     try:
         import bot
-        print("--- Bot is starting... ---")  # این خط رو اضافه کردم
+        print(">>> BOT IMPORT SUCCESSFUL. STARTING POLLING...")
         bot.application.run_polling()
     except Exception as e:
-        print(f"Error starting bot: {e}")
+        print(f">>> FATAL ERROR IN BOT: {e}")
 
 if __name__ == '__main__':
     bot_thread = threading.Thread(target=run_bot)
