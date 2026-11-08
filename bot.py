@@ -11,18 +11,18 @@ from openai import OpenAI
 # ==========================================
 # خواندن متغیرهای محیطی از Render (امن)
 # ==========================================
-BOT_TOKEN = os.environ.get("9029644547:AAEgCSzhllezoV6jiJtXk4YlCG2U-OxrT5U")
-OPENAI_API_KEY = os.environ.get("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")
+BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ==========================================
-# اطلاعات کارت (وارد شده توسط شما)
+# اطلاعات کارت
 # ==========================================
 CARD_NUMBER = "5859-8318-0259-8994"
 CARD_HOLDER = "مصطفی قربانی"
 
-client = OpenAI(api_key=6600182795)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================================
 # توابع دیتابیس (اتصال به Supabase)
